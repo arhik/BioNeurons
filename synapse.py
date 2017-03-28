@@ -4,14 +4,14 @@ import random
 
 
 class Synapse:
-    def __init__(self, sdr, segment = None , inc = 0.01, dec = 0.01, threshold = 0.5, defaultPermanance = 0.6, verbose = False):
+    def __init__(self, sdr, segment = None , inc = 0.01, dec = 0.05, threshold = 0.5, defaultPermanance = 0.6, verbose = False):
         self.inc = inc
         self.dec = dec
         self.threshold = threshold
         self.default = defaultPermanance
         self._value = self.default
         self.segment = segment
-        self.sdr = sdr # I may not need this
+        self.sdr = sdr
         self.verbose = verbose
     
     def register(self, obj):
@@ -35,7 +35,7 @@ class Synapse:
         self._value = tmpValue if tmpValue > 0.0 else 0.0
     
     def compute(self):
-        if self.segment.indx in self.sdr:
+        if self.segment.indx in self.sdr.curSDR:
             if self.verbose:
                 print("I am incrementing ")
             self.incPermanance()

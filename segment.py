@@ -1,3 +1,4 @@
+from math import log
 class Segment:
     def __init__(self, isRoot=False, level = 0, parent = None, maxLevel = 5):
         self.isRoot = isRoot
@@ -32,6 +33,7 @@ class Segment:
         self._active = 1 if self.value > 0 else 0
         if self.parent != None:
             self.parent.activate(activeBit)
+        
         
     def reset(self):
         self._value = 0
