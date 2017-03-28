@@ -133,15 +133,15 @@ class Neuron:
         # self.distalDendrites.root.type = self.distalDendrites
         # self.distalDendrites.initiateSynapses(self.inputSDR)
 
-        self.proximalDendrites = ProximalDendriteTree(neuron=self)
-        self.proximalDendrites.levels = 5
-        self.proximalDendrites.root.type = self.proximalDendrites
-        self.activeNeuronsSDR = activeNeuronsSDR
+        # self.proximalDendrites = ProximalDendriteTree(neuron=self)
+        # self.proximalDendrites.levels = 5
+        # self.proximalDendrites.root.type = self.proximalDendrites
+        # self.activeNeuronsSDR = activeNeuronsSDR
         
-        if self.proximalDendrites !=None:
-            if self.activeNeuronsSDR == None:
-                raise Exception("No activeNeuronsSDR for proximal computation.")
-        self.proximalDendrites.initiateSynapses(self.activeNeuronsSDR)
+        # if self.proximalDendrites !=None:
+        #     if self.activeNeuronsSDR == None:
+        #         raise Exception("No activeNeuronsSDR for proximal computation.")
+        # self.proximalDendrites.initiateSynapses(self.activeNeuronsSDR)
 
         self.basalDendrites = BasalDendriteTree(neuron = self)
         self.basalDendrites.root.type = self.basalDendrites
@@ -156,7 +156,7 @@ class Neuron:
     @property
     def bias(self):
         try:
-            bias = 0.25*(log(self.proximalDendrites.root.value,2)/2)/self.proximalDendrites.levels
+            bias = 0 #0.25*(log(self.proximalDendrites.root.value,2)/2)/self.proximalDendrites.levels
         except ValueError as e:
             bias = 0
         return bias
@@ -183,18 +183,18 @@ class Neuron:
             self.history[0].append((self._active, self.basalDendrites.root.value ))
         
         yield self._active
-        self.proximalDendrites.compute()
+        # self.proximalDendrites.compute()
     
-        #proximal only provide bias but investigate if they play role in spiking
-        # if self.bias >= self.threshold:
-            # self._active = 1
-            # self.history[1].append((self._active, self.proximalDendrites.root.value ))
-            # self.fire()
-        # else:
-            # self._active = 0
-        self.history[1].append((self._active, self.proximalDendrites.root.value ))
+        # #proximal only provide bias but investigate if they play role in spiking
+        # # if self.bias >= self.threshold:
+        #     # self._active = 1
+        #     # self.history[1].append((self._active, self.proximalDendrites.root.value ))
+        #     # self.fire()
+        # # else:
+        #     # self._active = 0
+        # self.history[1].append((self._active, self.proximalDendrites.root.value ))
 
-        yield None
+        # yield None
         
 
 
@@ -210,7 +210,7 @@ class Neuron:
         # self.fire(self.distalDendrites)
 
     def fire(self): #depolarize
-        self.proximalDendrites.reset()
+        # self.proximalDendrites.reset()
         self.basalDendrites.reset()
         
 
