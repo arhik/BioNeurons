@@ -29,19 +29,24 @@ class PeriodicSDR(SDR):
         self.samples.extend([SDRGen(size, numActiveBits, n).getSampleSDR() for i in range(n)])
         self.gen = self._rotate()
         self._curSDR = []
+        self._indx = 0
 
     @property
     def curSDR(self):
         return self._curSDR
     
+    @property
+    def indx(self):
+        return self._indx
+    
     def _rotate(self):
-        indx = 0
+        self._indx = 0
         while True:
-            self._curSDR = self.samples[indx]
+            self._curSDR = self.samples[self.indx]
             yield self.curSDR
-            indx += 1
-            if indx == len(self.samples):
-                indx=0
+            self._indx += 1
+            if self.indx == len(self.samples):
+                self._indx=0
         
     def getSampleSDR(self):
         return next(self.gen)
