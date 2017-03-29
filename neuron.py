@@ -7,9 +7,10 @@ rng.seed(1337)
 from math import log
 from itertools import chain
 
+
 class DendriteTree(object):
-    def __init__(self, neuron = None, type="Binary", levels = 6, pattern = "uniform"):
-        self.root=Segment(isRoot=True)
+    def __init__(self, neuron = None, type="Binary", levels = 7, pattern = "uniform"):
+        self.root=Segment(isRoot=True, tree=self)
         self.levels = levels
         self.segments = []
         self.synapses = []
@@ -22,8 +23,8 @@ class DendriteTree(object):
         nextFrontier = []
         for l in range(self.levels):
             for i in frontier:
-                i.leftSegment = Segment(parent=i, level=l, maxLevel=self.levels)
-                i.rightSegment = Segment(parent=i,level=l, maxLevel=self.levels)
+                i.leftSegment = Segment(root=self.root, tree=self, parent=i, level=l, maxLevel=self.levels)
+                i.rightSegment = Segment(root=self.root, tree=self, parent=i,level=l, maxLevel=self.levels)
                 nextFrontier.extend([i.leftSegment, i.rightSegment])
             self.segments.extend(nextFrontier)
             frontier = nextFrontier
@@ -34,6 +35,9 @@ class DendriteTree(object):
             for synapse in j:
                 activeBit = bool(synapse.value >= synapse.threshold)
                 synapse.segment.activate(activeBit)
+                if synapse.segment.activity < 0.01:
+                    if synapse.segment.updateCount > 100:
+                        synapse.segment.unregister()
                 if self.neuron._active:
                     if synapse.segment.indx in synapse.sdr.curSDR:
                         synapse.incPermanance()
@@ -45,11 +49,10 @@ class DendriteTree(object):
                 #     else:
                 #         synapse.incPermanance()
 
-
-                    
     def reset(self):
         for i in self.segments:
             i.reset()
+
 
 class DistalDendriteTree(DendriteTree):
     def __init__(self, neuron = None):
@@ -70,8 +73,6 @@ class ProximalDendriteTree(DendriteTree):
             indices = list(xrange(activeNeuronsSDR.size))
             if isinstance(self, ProximalDendriteTree):
                 if self.neuron.indx in indices:
-                    print(self.neuron.indx)
-                    print("preventing self loop")
                     indices.remove(self.neuron.indx)
                 # TODO try Except not necessary
                 try:
@@ -86,8 +87,6 @@ class ProximalDendriteTree(DendriteTree):
             indices = list(xrange(len(self.segments)))
             if isinstance(self, ProximalDendriteTree):
                 if self.neuron.indx in indices:
-                    print(self.neuron.indx)
-                    print("preventing self loop")
                     indices.remove(self.neuron.indx) 
                 indices = rng.sample(indices, activeNeuronsSDR.size)
             self.segments = [self.segments[i] for i in indices]
@@ -119,7 +118,8 @@ class BasalDendriteTree(DendriteTree):
             for indx, i in enumerate(self.segments):
                 i._indx = indx
         self.synapses.append([Synapse(sdr, segment) for segment in self.segments])
-        
+
+
 class Neuron:
     def __init__(self, inputSDR = None, activeNeuronsSDR = None, indx=None):
         self.inputSDR = inputSDR
@@ -134,7 +134,7 @@ class Neuron:
         # self.distalDendrites.initiateSynapses(self.inputSDR)
 
         self.proximalDendrites = ProximalDendriteTree(neuron=self)
-        self.proximalDendrites.levels = 5
+        self.proximalDendrites.levels = 4
         self.proximalDendrites.root.type = self.proximalDendrites
         self.activeNeuronsSDR = activeNeuronsSDR
         
@@ -147,8 +147,6 @@ class Neuron:
         self.basalDendrites.root.type = self.basalDendrites
         self.basalDendrites.initiateSynapses(self.inputSDR)
 
-        
-    
     @property
     def threshold(self):
         return 1.0
@@ -156,7 +154,8 @@ class Neuron:
     @property
     def bias(self):
         try:
-            bias = 0.25*(log(self.proximalDendrites.root.value,2)/2)/self.proximalDendrites.levels
+            # bias = 0.25*(log(self.proximalDendrites.root.value,2)/2)/self.proximalDendrites.levels
+            bias = float(self.proximalDendrites.root.value)/self.proximalDendrites.root._criticalValue
         except ValueError as e:
             bias = 0
         return bias
@@ -164,7 +163,8 @@ class Neuron:
     @property
     def response(self):
         try:
-            response = 0.75*(log(self.basalDendrites.root.value, 2))/self.basalDendrites.levels # double check this
+            # response = 0.75*(log(self.basalDendrites.root.value, 2))/self.basalDendrites.levels # double check this
+            response = float(self.basalDendrites.root.value)/self.basalDendrites.root._criticalValue
         except ValueError as e:
             response = 0
         return response
@@ -177,14 +177,15 @@ class Neuron:
         self.basalDendrites.compute()
         if self.activation >= self.threshold:
             self._active = 1
+            self.fire()
             self.history[0].append((self._active, self.basalDendrites.root.value ))
         else:
             self._active = 0
             self.history[0].append((self._active, self.basalDendrites.root.value ))
-        
+
         yield self._active
         self.proximalDendrites.compute()
-    
+
         #proximal only provide bias but investigate if they play role in spiking
         # if self.bias >= self.threshold:
             # self._active = 1
@@ -192,13 +193,10 @@ class Neuron:
             # self.fire()
         # else:
             # self._active = 0
+        
         self.history[1].append((self._active, self.proximalDendrites.root.value ))
 
         yield None
-        
-
-
-        
         
         # self.distalDendrites.compute()
         # self.threshold = 0.6*(self.distalDendrites.levels)
@@ -212,7 +210,6 @@ class Neuron:
     def fire(self): #depolarize
         self.proximalDendrites.reset()
         self.basalDendrites.reset()
-        
 
 
 class MiniColumn:
@@ -235,7 +232,9 @@ class MiniColumn:
         tmp = []
         computegens = []
         activity = []
+        
         # Create compute generator objects for parallel processing
+
         for neuron in self.neurons:
             computegens.append(neuron.compute())
         
@@ -249,39 +248,40 @@ class MiniColumn:
         for i, neuron in enumerate(self.neurons):
             if activity[i]:
                 tmp.append(neuron.indx)
-                tmp.sort(key=lambda x: neuron.response, reverse=True)
-                self.activeNeuronsSDR._curSDR = tmp
-                if neuron.indx in self.activeNeuronsSDR.curSDR:
-                    self._active = 1
-                else: 
-                    self._active = 0
+        tmp.sort(key=lambda x: neuron.response, reverse=True)
+        self.activeNeuronsSDR._curSDR = tmp
+
+        # for i, neuron in enumerate(self.neurons):
+        #     if activity[i]:
+        #         if neuron.indx in self.activeNeuronsSDR.curSDR:
+        #             self._active = 1
+        #         else: 
+        #             self._active = 0
+
         for i, neuron in enumerate(self.neurons):
             next(computegens[i])
 
     def getOutputSDR(self):
-        return self.activeNeuronsSDR
+        return self.activeNeuronsSDR.curSDR
 
 
 class Layer23:
-    def __init__(self, numMiniColumns, numNeurons, miniColumnSDR = None, inputSDR = None, outputLayerSDR = None):
+    def __init__(self, numMiniColumns, numNeurons, miniColumnsSDR = None, inputSDR = None):
         self.numMiniColumns = numMiniColumns
         self.inputSDR = inputSDR
-        self.miniColumnSDR = SDR(self.numMiniColumns, numNeurons, type = "miniColumn") if miniColumnSDR == None else miniColumnSDR
+        self.miniColumnsSDR = SDR(self.numMiniColumns, 10, type = "miniColumn") if miniColumnsSDR == None else miniColumnsSDR
         self.miniColumns = []
         self.numNeurons = numNeurons
-        self.activeNeuronsSDRs = [SDR(self.numNeurons, 2, type="activeNeuronsSDR") for i in range(numNeurons)]
+        self.activeNeuronsSDRs = [SDR(self.numNeurons, 2, type="activeNeuronsSDR") for i in range(self.numMiniColumns)]
         for i in range(self.numMiniColumns):
-            self.miniColumns.append(MiniColumn(self.numNeurons ,inputSDR = self.inputSDR, indx = i, activeNeuronsSDRs = self.activeNeuronsSDRs[i]))
+            self.miniColumns.append(MiniColumn(self.numNeurons ,inputSDR = self.inputSDR, indx = i, activeNeuronsSDR = self.activeNeuronsSDRs[i]))
 
     def compute(self):
-        tmp = set()
-        activity = []
-        for i in self.miniColumns:
-            i.compute()
-        for i in self.miniColumns:
-            if i._active:
-                tmp.add(i.indx)
-                self.miniColumnSDR._curSDR = list(tmp)
+        self.miniColumns.sort(key=lambda x: max([x.neurons[i].response for i in x.getOutputSDR()]) if x.getOutputSDR() else 0, reverse=True)
+        self.miniColumnsSDR._curSDR = [i.indx for i in self.miniColumns]
+        for i in self.miniColumnsSDR.curSDR:
+            self.miniColumns[i]._active = 1
+            self.miniColumns[i].compute()
 
     def getOutputSDR(self):
-        return self.miniColumn.curSDR
+        return self.miniColumnsSDR.curSDR
