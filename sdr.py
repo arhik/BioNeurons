@@ -8,7 +8,6 @@ class SDR(object):
         self.samples = []
         self._curSDR = []
         self.type = type
-    
         
     def __len__(self):
         return len(self.curSDR)

@@ -10,12 +10,13 @@ from itertools import chain
 
 class DendriteTree(object):
     def __init__(self, neuron = None, type="Binary", levels = 7, pattern = "uniform"):
-        self.root=Segment(isRoot=True, tree=self)
+        self.root=Segment(isRoot=True)
         self.levels = levels
         self.segments = []
         self.synapses = []
         self.neuron = neuron
         self.buildTree()
+        self.computeGen = None
 
     def buildTree(self):
         frontier = [self.root]
@@ -23,35 +24,80 @@ class DendriteTree(object):
         nextFrontier = []
         for l in range(self.levels):
             for i in frontier:
-                i.leftSegment = Segment(root=self.root, tree=self, parent=i, level=l, maxLevel=self.levels)
-                i.rightSegment = Segment(root=self.root, tree=self, parent=i,level=l, maxLevel=self.levels)
+                i.leftSegment = Segment(root=self.root,  parent=i, level=l, maxLevel=self.levels)
+                i.rightSegment = Segment(root=self.root, parent=i,level=l, maxLevel=self.levels)
                 nextFrontier.extend([i.leftSegment, i.rightSegment])
             self.segments.extend(nextFrontier)
             frontier = nextFrontier
             nextFrontier = []
     
     def compute(self):
-        for j in self.synapses:
-            for synapse in j:
-                activeBit = bool(synapse.value >= synapse.threshold)
-                synapse.segment.activate(activeBit)
-                if synapse.segment.activity < 0.01:
-                    if synapse.segment.updateCount > 100:
-                        synapse.segment.unregister()
-                if self.neuron._active:
-                    if synapse.segment.indx in synapse.sdr.curSDR:
-                        synapse.incPermanance()
-                    else:
-                        synapse.decPermanance()
-                # else:
-                #     if synapse.segment.indx  in synapse.sdr.curSDR:
-                #         synapse.decPermanance()
-                #     else:
-                #         synapse.incPermanance()
+        for synapse in self.synapses:
+            activeBit = bool(synapse.value >= synapse.threshold)
+            synapse.segment.activate(activeBit)
+        yield None
+
+        if self.neuron._active:
+            for synapse in self.synapses:
+                if synapse.segment.indx in synapse.sdr.curSDR:
+                    synapse.incPermanance()
+                else:
+                    synapse.decPermanance()
+        
+        # if self.neuron.iteration > 10:
+        if len(self.synapses) > 2**self.levels:
+            orderedActiveSynapses = sorted(self.synapses, key=lambda x: x.segment.activity)
+            if len(orderedActiveSynapses) > 40:
+                leastActiveSynapses = orderedActiveSynapses[:40]
+                for synapse in leastActiveSynapses:
+                    synapse.segment._indx = None
+                    synapse.segment._value = 0
+                    synapse.segment._activity = 0
+                    synapse.segment._active = 0
+                    self.synapses.remove(synapse)
+
+        elif len(self.synapses) < 20:
+            for i in range(2**self.levels - len(self.synapses)):
+                segments = [i for i in self.segments if i.indx == None]
+                if len(segments) !=0:
+                    segment = rng.choice(segments)
+                    segment._indx = rng.choice(synapse.sdr.curSDR)
+                    self.synapses.append(Synapse(synapse.sdr, segment))
+                else:
+                    segments = []
+        
+        yield None
+                        #TODO 
+
+                        # create segments onto top segments
+                # if self.neuron.activity >= 0.9:
+                #     if synapse.segment.activity < 0.01 and len(self.synapses) < 40:
+                #         segments = [i for i in self.segments if i.indx == None]
+                #         if len(segments)!=0:
+                #             segment = rng.choice(segments)
+                #             segment._indx = rng.choice(synapse.sdr.curSDR)
+                #             self.synapses.append(Synapse(synapse.sdr, segment))
+                #             print("growing synapse")
+                #     if synapse.segment.activity >= 0.99 and len(self.synapses) > 40:
+                #         synapse.segment._indx = None
+                #         synapse.segment._value = 0
+                #         synapse.segment._activity = 0
+                #         synapse.segment._active = 0
+                #         self.synapses.remove(synapse)
+                #         print("pruning synapse")
+                # elif self.neuron.activity < 0.1:
+                #     if synapse.segment.activity > 0.99 and len(self.synapses) < 2**self.levels:
+                #         segments = [i for i in self.segments if i.indx == None]
+                #         if len(segments)!=0:
+                #             segment = rng.choice(segments)
+                #             segment._indx = rng.choice(synapse.sdr.curSDR)
+                #             self.synapses.append(Synapse(synapse.sdr, segment))
+                #             # print("growing synapse")
+
 
     def reset(self):
-        for i in self.segments:
-            i.reset()
+        for i in self.synapses:
+            i.segment.reset()
 
 
 class DistalDendriteTree(DendriteTree):
@@ -71,32 +117,20 @@ class ProximalDendriteTree(DendriteTree):
     def initiateSynapses(self, activeNeuronsSDR, lateralSDRS = None):
         if activeNeuronsSDR.size >= len(self.segments):
             indices = list(xrange(activeNeuronsSDR.size))
-            if isinstance(self, ProximalDendriteTree):
-                if self.neuron.indx in indices:
-                    indices.remove(self.neuron.indx)
-                # TODO try Except not necessary
-                try:
-                    indices = rng.sample(indices, len(self.segments))
-                except ValueError:
-                    indices = rng.sample(indices, len(self.segments)-1)
-            else:
-                indices = rng.sample(indices, len(self.segments))
+            if self.neuron.indx in indices:
+                indices.remove(self.neuron.indx)
+            indices = rng.sample(indices, len(self.segments))
             for i,indx in enumerate(indices):
                 self.segments[i]._indx = indx
         elif activeNeuronsSDR.size < len(self.segments):
             indices = list(xrange(len(self.segments)))
-            if isinstance(self, ProximalDendriteTree):
-                if self.neuron.indx in indices:
-                    indices.remove(self.neuron.indx) 
-                indices = rng.sample(indices, activeNeuronsSDR.size)
+            if self.neuron.indx in indices:
+                indices.remove(self.neuron.indx) 
+            indices = rng.sample(indices, activeNeuronsSDR.size)
             self.segments = [self.segments[i] for i in indices]
             for indx, i in enumerate(self.segments):
                 i._indx = indx
-        if isinstance(self, ProximalDendriteTree):
-            self.synapses.append([Synapse(activeNeuronsSDR, segment, inc=0.01, dec=0.02) for segment in self.segments])
-        else:
-            self.synapses.append([Synapse(activeNeuronsSDR, segment) for segment in self.segments])
-
+        self.synapses.extend([Synapse(activeNeuronsSDR, segment, inc=0.01, dec=0.05) for segment in self.segments])
 
 
 class BasalDendriteTree(DendriteTree):
@@ -117,7 +151,7 @@ class BasalDendriteTree(DendriteTree):
             self.segments = [self.segments[i] for i in indices]
             for indx, i in enumerate(self.segments):
                 i._indx = indx
-        self.synapses.append([Synapse(sdr, segment) for segment in self.segments])
+        self.synapses.extend([Synapse(sdr, segment) for segment in self.segments])
 
 
 class Neuron:
@@ -126,6 +160,8 @@ class Neuron:
         self.history = [[],[],[]]
         self._active = 0
         self.indx = indx
+        self._iteration = 0
+        self._activity = 0
         
         # self.indx = sum([inputSDR.length].extend([lateralSDR.length for i in lateralSDRs]))
         # self.distalDendrites = DistalDendriteTree()
@@ -134,7 +170,7 @@ class Neuron:
         # self.distalDendrites.initiateSynapses(self.inputSDR)
 
         self.proximalDendrites = ProximalDendriteTree(neuron=self)
-        self.proximalDendrites.levels = 4
+        self.proximalDendrites.levels = 3
         self.proximalDendrites.root.type = self.proximalDendrites
         self.activeNeuronsSDR = activeNeuronsSDR
         
@@ -148,14 +184,27 @@ class Neuron:
         self.basalDendrites.initiateSynapses(self.inputSDR)
 
     @property
+    def active(self):
+        return self._active
+
+    @property
+    def iteration(self):
+        return self._iteration
+
+    @property
+    def activity(self):
+        return self._activity
+
+    @property
     def threshold(self):
         return 1.0
 
     @property
     def bias(self):
         try:
-            # bias = 0.25*(log(self.proximalDendrites.root.value,2)/2)/self.proximalDendrites.levels
-            bias = float(self.proximalDendrites.root.value)/self.proximalDendrites.root._criticalValue
+            bias = .2*(log(self.proximalDendrites.root.value,2)/2)/log(len(self.proximalDendrites.synapses*2),2)
+            # bias = float(self.proximalDendrites.root.value)/self.proximalDendrites.root._criticalValue
+            # bias = float(self.proximalDendrites.root.value)
         except ValueError as e:
             bias = 0
         return bias
@@ -163,29 +212,41 @@ class Neuron:
     @property
     def response(self):
         try:
-            # response = 0.75*(log(self.basalDendrites.root.value, 2))/self.basalDendrites.levels # double check this
-            response = float(self.basalDendrites.root.value)/self.basalDendrites.root._criticalValue
+            response = .8*(log(self.basalDendrites.root.value, 2))/log(len(self.basalDendrites.synapses), 2) # double check this
+            # response = float(self.basalDendrites.root.value)/self.basalDendrites.root._criticalValue
+            # response = float(self.basalDendrites.root.value)
         except ValueError as e:
             response = 0
         return response
 
     @property
     def activation(self):
-        return self.bias + self.response if self.bias!=None else self.response
+        return self.bias + self.response #if self.bias!=None else self.response
 
     def compute(self):
-        self.basalDendrites.compute()
+        self._iteration += 1
+        if self.proximalDendrites.computeGen == None:
+            self.proximalDendrites.computeGen = self.proximalDendrites.compute()
+
+        next(self.proximalDendrites.computeGen)
+        next(self.proximalDendrites.computeGen)
+        self.basalDendrites.computeGen = self.basalDendrites.compute()
+        next(self.basalDendrites.computeGen)
         if self.activation >= self.threshold:
             self._active = 1
-            self.fire()
             self.history[0].append((self._active, self.basalDendrites.root.value ))
         else:
             self._active = 0
             self.history[0].append((self._active, self.basalDendrites.root.value ))
+        next(self.basalDendrites.computeGen)
+        if self.active:
+            self.basalDendrites.reset()
+            self.proximalDendrites.reset()
 
+        self._activity = (self._active + self.activity)*.5
+        # print("First compute")
         yield self._active
-        self.proximalDendrites.compute()
-
+        # print("second compute")
         #proximal only provide bias but investigate if they play role in spiking
         # if self.bias >= self.threshold:
             # self._active = 1
@@ -193,6 +254,7 @@ class Neuron:
             # self.fire()
         # else:
             # self._active = 0
+        self.proximalDendrites.computeGen = self.proximalDendrites.compute()
         
         self.history[1].append((self._active, self.proximalDendrites.root.value ))
 
@@ -207,9 +269,10 @@ class Neuron:
         # self.history[2].append((self._active, self.distalDendrites.root.value ))
         # self.fire(self.distalDendrites)
 
-    def fire(self): #depolarize
-        self.proximalDendrites.reset()
-        self.basalDendrites.reset()
+    # def fire(self): #depolarize
+    #     self.basalDendrites.reset()
+        # self.proximalDendrites.reset()
+        
 
 
 class MiniColumn:
@@ -272,16 +335,16 @@ class Layer23:
         self.miniColumnsSDR = SDR(self.numMiniColumns, 10, type = "miniColumn") if miniColumnsSDR == None else miniColumnsSDR
         self.miniColumns = []
         self.numNeurons = numNeurons
-        self.activeNeuronsSDRs = [SDR(self.numNeurons, 2, type="activeNeuronsSDR") for i in range(self.numMiniColumns)]
+        self.activeNeuronsSDRs = [SDR(self.numNeurons, 10, type="activeNeuronsSDR") for i in range(self.numMiniColumns)]
         for i in range(self.numMiniColumns):
             self.miniColumns.append(MiniColumn(self.numNeurons ,inputSDR = self.inputSDR, indx = i, activeNeuronsSDR = self.activeNeuronsSDRs[i]))
 
     def compute(self):
         self.miniColumns.sort(key=lambda x: max([x.neurons[i].response for i in x.getOutputSDR()]) if x.getOutputSDR() else 0, reverse=True)
-        self.miniColumnsSDR._curSDR = [i.indx for i in self.miniColumns]
-        for i in self.miniColumnsSDR.curSDR:
-            self.miniColumns[i]._active = 1
-            self.miniColumns[i].compute()
+        # self.miniColumnsSDR._curSDR = [i.indx for i in self.miniColumns]
+        for i in self.miniColumns[:10]:
+            i.compute()
+        self.miniColumnsSDR._curSDR = [i.activeNeuronsSDR.curSDR for i in self.miniColumns]
 
     def getOutputSDR(self):
-        return self.miniColumnsSDR.curSDR
+        return self.miniColumnsSDR._curSDR
